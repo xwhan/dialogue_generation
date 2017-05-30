@@ -59,3 +59,72 @@ def random_sequences(length_from, length_to,
             for _ in range(batch_size)
         ]
 
+
+def build_vocab(vocab_path):
+    vocab_file = open(vocab_path)
+    vocab_data = vocab_file.readlines()
+    vocab_file.close()
+
+    word2index = index2word = {}
+    word2index['PAD'] = 0
+    index2word[0] = 'PAD'
+    for idx, line in enumerate(vocab_data):
+        word = line.rstrip()
+        index2word[idx+1] = word
+        word2index[word] = idx + 1
+    index2word[len(vocab_data)+1] = 'EOS'
+    word2index['EOS'] = len(vocab_data)+1
+    return (word2index, index2word)
+
+def build_data(data_path, word2index):
+    data_file = open(data_path)
+    data = data_file.readlines()
+    data_file.close()
+    input_seqs = []
+    target_seqs = []
+    for line in tqdm(data):
+        pair = line.rstrip().split('|')
+        input_ = []
+        target_ = []
+        for word in pair[0].split():
+            input_.append(int(word))
+        for word in pair[1].split():
+            target_.append(int(word))
+        target_.append(word2index['EOS'])
+        input_seqs.append(input_)
+        target_seqs.append(target_)
+    return (input_seqs, target_seqs)
+
+def batch_generator(input_seqs, target_seqs, batch_size, shuffle=True):
+    data_size = len(input_seqs)
+    num_batches = int((data_size-1)/batch_size) + 1
+
+    input_lengths = np.array([len(seq) for seq in input_seqs])
+    max_input_len = np.max(input_lengths)
+    input_matrix = np.zeros([max_input_len, data_size], dtype=np.int32)
+    target_lengths = np.array([len(seq) for seq in target_seqs])
+    max_target_len = np.max(target_lengths)
+    target_matrix = np.zeros([max_target_len, data_size], dtype=np.int32)
+    target_lengths = np.array([len(seq) for seq in target_seqs])
+    for i, seq in enumerate(input_seqs):
+        for j, elem in enumerate(seq):
+            input_matrix[j,i] = elem
+    for i, seq in enumerate(target_seqs):
+        for j, elem in enumerate(seq):
+            target_matrix[j,i] = elem
+    if shuffle:
+        shuffle_indice = np.random.permutation(np.arange(data_size))
+        input_shuffle = input_matrix[:,shuffle_indice]
+        input_lengths_shuffle = input_lengths[shuffle_indice]
+        target_shuffle = target_matrix[:,shuffle_indice]
+        # target_lengths_shuffle = target_lengths[shuffle_indice]
+    else:
+        input_shuffle = input_matrix
+        input_lengths_shuffle = input_lengths
+        target_shuffle = target_matrix
+        # target_lengths_shuffle = target_lengths
+    for batch_num in range(num_batches):
+        start_index = batch_num * batch_size
+        end_index = min((batch_num+1)*batch_size, data_size)
+        yield [input_shuffle[:,start_index:end_index], input_lengths_shuffle[start_index:end_index], target_shuffle[:,start_index:end_index]]
+

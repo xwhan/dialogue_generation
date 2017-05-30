@@ -9,7 +9,7 @@ import tensorflow.contrib.seq2seq as seq2seq
 from tensorflow.contrib.rnn import LSTMCell, LSTMStateTuple, MultiRNNCell
 from tqdm import tqdm
 
-import helpers
+from helpers import *
 
 class Seq2SeqAttn(object):
 	"""loop flow version of seq2seq model"""
@@ -128,80 +128,12 @@ class Seq2SeqAttn(object):
 		_, step, loss = sess.run([self.train_op, self.global_step, self.loss],{self.encoder_inputs:input_data, self.encoder_inputs_length:input_lengths, self.decoder_targets:target_data})
 		return [step, loss]
 
-def build_vocab(vocab_path):
-	vocab_file = open(vocab_path)
-	vocab_data = vocab_file.readlines()
-	vocab_file.close()
-
-	word2index = index2word = {}
-	word2index['PAD'] = 0
-	index2word[0] = 'PAD'
-	for idx, line in enumerate(vocab_data):
-		word = line.rstrip()
-		index2word[idx+1] = word
-		word2index[word] = idx + 1
-	index2word[len(vocab_data)+1] = 'EOS'
-	word2index['EOS'] = len(vocab_data)+1
-	return (word2index, index2word)
-
-def build_data(data_path, word2index):
-	data_file = open(data_path)
-	data = data_file.readlines()
-	data_file.close()
-	input_seqs = []
-	target_seqs = []
-	for line in tqdm(data):
-		pair = line.rstrip().split('|')
-		input_ = []
-		target_ = []
-		for word in pair[0].split():
-			input_.append(int(word))
-		for word in pair[1].split():
-			target_.append(int(word))
-		target_.append(word2index['EOS'])
-		input_seqs.append(input_)
-		target_seqs.append(target_)
-	return (input_seqs, target_seqs)
-
-def batch_generator(input_seqs, target_seqs, batch_size, shuffle=True):
-	data_size = len(input_seqs)
-	num_batches = int((data_size-1)/batch_size) + 1
-
-	input_lengths = np.array([len(seq) for seq in input_seqs])
-	max_input_len = np.max(input_lengths)
-	input_matrix = np.zeros([max_input_len,	data_size], dtype=np.int32)
-	target_lengths = np.array([len(seq) for seq in target_seqs])
-	max_target_len = np.max(target_lengths)
-	target_matrix = np.zeros([max_target_len, data_size], dtype=np.int32)
-	target_lengths = np.array([len(seq) for seq in target_seqs])
-	for i, seq in enumerate(input_seqs):
-		for j, elem in enumerate(seq):
-			input_matrix[j,i] = elem
-	for i, seq in enumerate(target_seqs):
-		for j, elem in enumerate(seq):
-			target_matrix[j,i] = elem
-	if shuffle:
-		shuffle_indice = np.random.permutation(np.arange(data_size))
-		input_shuffle = input_matrix[:,shuffle_indice]
-		input_lengths_shuffle = input_lengths[shuffle_indice]
-		target_shuffle = target_matrix[:,shuffle_indice]
-		# target_lengths_shuffle = target_lengths[shuffle_indice]
-	else:
-		input_shuffle = input_matrix
-		input_lengths_shuffle = input_lengths
-		target_shuffle = target_matrix
-		# target_lengths_shuffle = target_lengths
-	for batch_num in range(num_batches):
-		start_index = batch_num * batch_size
-		end_index = min((batch_num+1)*batch_size, data_size)
-		yield [input_shuffle[:,start_index:end_index], input_lengths_shuffle[start_index:end_index], target_shuffle[:,start_index:end_index]]
-
 if __name__ == '__main__':
 	word2index, index2word = build_vocab('vocab.txt')
 	
 	## get train data
 	print '----------PREPARING TRAINING DATA---------------'
-	input_seqs, target_seqs = build_data('OpenSubData/train.txt', word2index)
+	input_seqs, target_seqs = build_data('OpenSubData/xaa', word2index)
 
 	tf.reset_default_graph()
 	generator = Seq2SeqAttn(25000 + 2, 100, 128, 2, word2index['EOS'])
@@ -212,11 +144,11 @@ if __name__ == '__main__':
 		num_epoch = 5
 		eval_step = 100
 		for epoch in range(num_epoch):
-			print "EPOCH %d" % epoch
+			# print "EPOCH %d" % epoch
 			batches = batch_generator(input_seqs, target_seqs, 128)
 			for batch in batches:
 				step, batch_loss = generator.update(batch[0], batch[2], batch[1])
 				if step % eval_step == 0:
-					print 'BATCH LOSS:', batch_loss
+					print 'EPOCH: %d BATCH LOSS: %f UPDATE STEP: %d' % (epoch, batch_loss, step)
 		saver.save(sess, 'models/seq2seq_raw_' + str(num_epoch))
 		print 'MODEL SAVED'
