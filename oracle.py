@@ -9,6 +9,7 @@ from classifier import Classifier
 from tqdm import tqdm
 
 emotional_ends = {14, 3823, 6755}
+end_symbols = {2, 3, 7, }
 
 def get_data(datapath, max_len):
 	data = open(datapath).readlines()
@@ -53,18 +54,18 @@ if __name__ == '__main__':
 	saver = tf.train.Saver()
 
 	print 'LOADING DATA'
-	train_data, train_labels, train_size = get_data('OpenSubData/xaa', max_len)
-	test_data, test_label, _ = get_data('OpenSubData/mini_data.txt', max_len)
+	train_data, train_labels, train_size = get_data('OpenSubData/oracle_train.txt', max_len)
+	test_data, test_label, _ = get_data('OpenSubData/oracle_dev.txt', max_len)
 
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
-		num_epoch = 10
+		num_epoch = 200
 		for epoch in range(num_epoch):
 			batches = build_data(train_data, train_labels, train_size, 128)
 			print 'START TRAINING EPOCH:%d' % epoch 
 			for batch in batches:
 				step, loss, accuracy = classifier.update_step(batch[0], batch[1], 0.5)
-				if step % 5000 == 0:
+				if step % 1000 == 0:
 					print 'BATCH LOSS AFTER %d step: %f' % (step, loss) 
 			curr_loss, curr_accuracy, predictions = classifier.predict(test_data, test_label)
 			print '\nVALIDATION ERROR & ACCURACY AFTER %d EPOCH: %f, %f' % (epoch+1, curr_loss, curr_accuracy)

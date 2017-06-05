@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 def batch(inputs, max_sequence_length=None):
     """
@@ -65,7 +66,8 @@ def build_vocab(vocab_path):
     vocab_data = vocab_file.readlines()
     vocab_file.close()
 
-    word2index = index2word = {}
+    index2word = {}
+    word2index = {}
     word2index['PAD'] = 0
     index2word[0] = 'PAD'
     for idx, line in enumerate(vocab_data):
@@ -117,14 +119,54 @@ def batch_generator(input_seqs, target_seqs, batch_size, shuffle=True):
         input_shuffle = input_matrix[:,shuffle_indice]
         input_lengths_shuffle = input_lengths[shuffle_indice]
         target_shuffle = target_matrix[:,shuffle_indice]
-        # target_lengths_shuffle = target_lengths[shuffle_indice]
+        target_lengths_shuffle = target_lengths[shuffle_indice]
     else:
         input_shuffle = input_matrix
         input_lengths_shuffle = input_lengths
         target_shuffle = target_matrix
-        # target_lengths_shuffle = target_lengths
+        target_lengths_shuffle = target_lengths
     for batch_num in range(num_batches):
         start_index = batch_num * batch_size
         end_index = min((batch_num+1)*batch_size, data_size)
-        yield [input_shuffle[:,start_index:end_index], input_lengths_shuffle[start_index:end_index], target_shuffle[:,start_index:end_index]]
+        yield [input_shuffle[:,start_index:end_index], input_lengths_shuffle[start_index:end_index], target_shuffle[:,start_index:end_index], target_lengths_shuffle[start_index:end_index]]
+
+def embed_fromGlove(glove_path, index2word):
+    model = {}
+    matrix = []
+    print 'LOADING GLOVE'
+    lines = open(glove_path).readlines()
+    for line in lines:
+        split_line = line.rstrip().split()
+        word = split_line[0]
+        embedding = [float(val) for val in split_line[1:]]
+        model[word] = embedding
+    word_num = len(index2word.keys())
+    # random for 'POS'
+    matrix.append(np.random.normal(-0.5 / 100, 0.5 / 100, size=100))
+    # print word_num
+    i = 0
+    for idx in range(1,word_num - 1):
+        if index2word[idx] in model:
+            matrix.append(np.array(model[index2word[idx]]))
+            i += 1
+        else:
+            matrix.append(np.random.normal(-0.5 / 100, 0.5 / 100, size=100))
+    # for pad
+    matrix.append(np.random.normal(-0.5 / 100, 0.5 / 100, size=100))
+    f = open('embedding','w')
+    matrix = np.array(matrix)
+    # print i
+    # print matrix.shape
+    np.save(f, matrix)
+    return matrix
+
+
+
+
+
+
+
+
+
+
 

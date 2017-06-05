@@ -7,7 +7,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf 
 import tensorflow.contrib.seq2seq as seq2seq
 from tensorflow.contrib.rnn import LSTMCell, LSTMStateTuple, MultiRNNCell
-from tqdm import tqdm
+
 
 from helpers import *
 
@@ -27,15 +27,17 @@ class Seq2SeqAttn(object):
 		self.encoder_inputs_length = tf.placeholder(shape=(None,), dtype=tf.int32, name='encoder_inputs_length')
 		self.decoder_targets = tf.placeholder(shape=(None, None), dtype=tf.int32, name='decoder_targets')
 
+		seq_len, batch_size = tf.unstack(tf.shape(self.decoder_targets))
 		loss_weights = tf.cast(tf.cast(self.decoder_targets,tf.bool),tf.float32)
-		self.loss_weights = tf.transpose(loss_weights,perm=[1,0])
+		self.loss_weights = tf.transpose(loss_weights, perm=[1,0])
+		# self.loss_weights = tf.ones(shape=(batch_size, seq_len))
 
 		## Embedding Layer		
 		with tf.variable_scope('embedding'):
-			if initial_embed:
-				self.embedding = tf.Variable(initial_embed, name='matrix', dtype=tf.float32)
-			else:
-				self.embedding = tf.Variable(tf.random_normal([vocab_size, embed_size], - 0.5 / embed_size, 0.5 / embed_size), name='matrix', dtype=tf.float32)
+			#if initial_embed:
+			self.embedding = tf.Variable(initial_embed, name='matrix', dtype=tf.float32, trainable=True)
+			# else:
+				# self.embedding = tf.Variable(tf.random_normal([vocab_size, embed_size], - 0.5 / embed_size, 0.5 / embed_size), name='matrix', dtype=tf.float32)
 			self.encoder_inputs_embedded = tf.nn.embedding_lookup(self.embedding, self.encoder_inputs)
 
 		## Encoder & Decoder Cells
@@ -111,7 +113,7 @@ class Seq2SeqAttn(object):
 		decoder_outputs_flat = tf.reshape(self.decoder_outputs, (-1, decoder_dim))
 		decoder_logits_flat = tf.add(tf.matmul(decoder_outputs_flat, self.W), self.b)
 		decoder_logits = tf.reshape(decoder_logits_flat, (decoder_max_steps, decoder_batch_size, self.vocab_size))
-		decoder_logits = tf.transpose(decoder_logits, perm=[1,0,2])
+		decoder_logits = tf.transpose(decoder_logits, perm=[1,0,2]) # batch_size * max_steps * vocab_size
 		decoder_targets = tf.transpose(self.decoder_targets, perm=[1,0])
 
 		self.decoder_prediction = tf.argmax(decoder_logits, 2)
@@ -128,20 +130,27 @@ class Seq2SeqAttn(object):
 		_, step, loss = sess.run([self.train_op, self.global_step, self.loss],{self.encoder_inputs:input_data, self.encoder_inputs_length:input_lengths, self.decoder_targets:target_data})
 		return [step, loss]
 
-if __name__ == '__main__':
+	def generate(self, input_data, input_lengths, sess=None):
+		sess = sess or tf.get_default_session()
+		prediction = sess.run(self.decoder_prediction, {self.encoder_inputs:input_data, self.encoder_inputs_length:input_lengths})
+		return prediction
+
+def train():
 	word2index, index2word = build_vocab('vocab.txt')
 	
-	## get train data
+	# get train data
 	print '----------PREPARING TRAINING DATA---------------'
-	input_seqs, target_seqs = build_data('OpenSubData/xaa', word2index)
+	input_seqs, target_seqs = build_data('OpenSubData/first_10000.txt', word2index)
+	#matrix = embed_fromGlove('glove.twitter.27B.100d.txt', index2word)
+	matrix = np.load(open('embedding'))
 
 	tf.reset_default_graph()
-	generator = Seq2SeqAttn(25000 + 2, 100, 128, 2, word2index['EOS'])
+	generator = Seq2SeqAttn(25000 + 2, 100, 128, 2, word2index['EOS'], initial_embed=matrix)
 
 	saver = tf.train.Saver()
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
-		num_epoch = 5
+		num_epoch = 500
 		eval_step = 100
 		for epoch in range(num_epoch):
 			# print "EPOCH %d" % epoch
@@ -150,5 +159,50 @@ if __name__ == '__main__':
 				step, batch_loss = generator.update(batch[0], batch[2], batch[1])
 				if step % eval_step == 0:
 					print 'EPOCH: %d BATCH LOSS: %f UPDATE STEP: %d' % (epoch, batch_loss, step)
-		saver.save(sess, 'models/seq2seq_raw_' + str(num_epoch))
+		saver.save(sess, 'models/seq2seq_pretrained_' + str(num_epoch))
 		print 'MODEL SAVED'
+
+def test():
+	word2index, index2word = build_vocab('vocab.txt')
+	print '----------PREPARING TESTING DATA---------------'
+	input_seqs, target_seqs = build_data('OpenSubData/for_generation.txt', word2index)
+
+	matrix = np.load(open('embedding'))
+	tf.reset_default_graph()
+	generator = Seq2SeqAttn(25000 + 2, 100, 128, 2, word2index['EOS'], initial_embed=matrix)
+
+	saver = tf.train.Saver()
+	with tf.Session() as sess:
+		saver.restore(sess, 'models/seq2seq_pretrained_100')
+		print 'MODEL RESTORED'
+		batch_size = 5
+		batches = batch_generator(input_seqs, target_seqs, batch_size)
+		for batch in batches:
+			inputs = batch[0].T
+			# targets = batch[2].T
+			outputs = generator.generate(batch[0], batch[1], sess)
+			# print inputs, targets, outputs
+			# break
+			for idx in range(batch_size):
+				input_seq = inputs[idx,:]
+				output_seq = outputs[idx,:]
+				input_sent = []
+				output_sent = []
+				for num in input_seq:
+					if num == 0:
+						break
+					else:
+						input_sent.append(index2word[num])
+				for num in output_seq:
+					if num == word2index['EOS']:
+						break
+					else:
+						output_sent.append(index2word[num])
+				print 'INPUT: ', ' '.join(input_sent)
+				print 'OUTPUT: ', ' '.join(output_sent)
+			break
+
+if __name__ == '__main__':
+	train()
+	# test()
+

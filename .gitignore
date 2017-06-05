@@ -1,5 +1,9 @@
 *.pyc
+*.zip
+*.txt
 aclImdb/
 
 OpenSubData/
 models/
+
+embedding
