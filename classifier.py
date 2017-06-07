@@ -86,6 +86,10 @@ class Classifier(object):
 		loss, accuracy, predictions = sess.run([self.loss, self.accuracy, self.predictions],{self.input_x:data_x, self.input_y:data_y, self.dropout_keep_prob:1.0})
 		return [loss, accuracy, predictions]
 
+	def inference(self, data_x, sess=None):
+		sess = sess or tf.get_default_session()
+		predictions = sess.run(self.predictions, {self.input_x:data_x, self.dropout_keep_prob:1.0})
+		return predictions
 
 if __name__ == '__main__':
 	a = Classifier([3,4,5], 128, 30, 2, 25000, 100)

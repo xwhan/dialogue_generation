@@ -117,7 +117,7 @@ class Seq2SeqAttn(object):
 			embeddings=self.embedding,
 			start_of_sequence_id=self.EOS,
 			end_of_sequence_id=self.EOS,
-			maximum_length= max_len + 5,
+			maximum_length= 35,
 			num_decoder_symbols=self.vocab_size,
 			)
 
@@ -148,9 +148,12 @@ class Seq2SeqAttn(object):
 		# optimizer
 		with tf.name_scope('optimizer'):
 			self.global_step = tf.Variable(0, name="global_step", trainable=False)
+			# self.policy_step = tf.Variable(0, name='policy_step', trainable=False)
 			logits = tf.transpose(self.decoder_logits_train, [1, 0, 2]) # batch_size * sequence_length * vocab_size
  			targets = tf.transpose(self.decoder_train_targets, [1, 0])
-			output_prob = tf.reduce_max(tf.nn.softmax(logits), axis=2) # batch_size * seq_len
+
+ 			logits_inference = tf.transpose(self.decoder_logits_inference, [1,0,2])
+			output_prob = tf.reduce_max(tf.nn.softmax(logits_inference), axis=2) # batch_size * seq_len
 			seq_log_prob = tf.reduce_sum(tf.log(output_prob), axis=1)
 			self.policy_loss = - tf.reduce_sum(self.rewards * seq_log_prob)
 			self.policy_op = tf.train.AdamOptimizer().minimize(self.policy_loss)
@@ -160,10 +163,15 @@ class Seq2SeqAttn(object):
 			self.train_op = tf.train.AdamOptimizer().minimize(self.loss, global_step=self.global_step)
 
 	def policy_learning(self, input_seqs, input_lengths, rewards, sess=None):
-		sess = sess or self.get_default_session()
+		sess = sess or sess.get_default_session()
 		_, loss = sess.run([self.policy_op, self.policy_loss], {self.encoder_inputs:input_seqs, self.encoder_inputs_length:input_lengths, self.rewards:rewards})
-
 		return loss
+
+	def inference(self, input_seqs, input_lengths, sess=None):
+		sess = sess or sess.get_default_session()
+		feed_dict = {self.encoder_inputs:input_seqs, self.encoder_inputs_length:input_lengths}
+		generated = sess.run(self.decoder_prediction_inference, feed_dict)
+		return generated
 
 	def update(self, input_seqs, input_lengths, target_seqs, sess=None):
 		sess = sess or tf.get_default_session()
@@ -178,7 +186,7 @@ def train():
 	matrix = np.load(open('embedding'))
 
 	tf.reset_default_graph()
-	generator = Seq2SeqAttn(25000 + 2, 100, 2, 128, 1, max_len=31, initial_embed=matrix)
+	generator = Seq2SeqAttn(25000 + 2, 100, 2, 128, word2index['EOS'], max_len=31, initial_embed=matrix)
 
 	saver = tf.train.Saver()
 	with tf.Session() as sess:
@@ -195,14 +203,12 @@ def train():
 		print 'MODEL SAVED'
 
 def rl_train():
+	word2index, index2word = build_vocab('vocab.txt')
 	matrix = np.load(open('embedding'))
-	# tf.reset_default_graph()
-	# with tf.variable_scope('generator'):
 	g1 = tf.Graph()
 	with g1.as_default():
-		generator = Seq2SeqAttn(25000 + 2, 100, 2, 128, 1, max_len=31, initial_embed=matrix)
+		generator = Seq2SeqAttn(25000 + 2, 100, 2, 128, word2index['EOS'], max_len=31, initial_embed=matrix)
 		saver_1 = tf.train.Saver()
-	# with tf.variable_scope('oracle'):
 
 	g2 = tf.Graph()
 	with g2.as_default():
@@ -214,9 +220,82 @@ def rl_train():
 	sess2 = tf.Session(graph=g2)
 	saver_2.restore(sess2, 'models/classifer')
 
+	word2index, index2word = build_vocab('vocab.txt')
+	print '----------PREPARING TRAINING DATA---------------'
+	input_seqs, target_seqs = build_data('OpenSubData/first_100000.txt', word2index)
+
+	num_epoch = 100
+	eval_step = 100
+	update_step = 0
+	for epoch in range(num_epoch):
+		batches = batch_generator(input_seqs, target_seqs, 128)
+		for batch in batches:
+			generated = generator.inference(batch[0], batch[1], sess1)
+			oracle_inputs = generated.T
+			max_len = oracle_inputs.shape[1]
+			batch_size = oracle_inputs.shape[0]
+			if max_len > 30:
+				oracle_inputs = oracle_inputs[:,:30]
+			else:
+				oracle_inputs_ = np.zeros((batch_size, 30))
+				oracle_inputs_[:oracle_inputs.shape[0],:oracle_inputs.shape[1]] = oracle_inputs
+				oracle_inputs = oracle_inputs_
+			oracle_predictions = oracle.inference(oracle_inputs, sess2)
+			# reinforce
+			rl_loss = generator.policy_learning(batch[0], batch[1], oracle_predictions, sess1)
+			update_step += 1
+			if update_step % eval_step == 0:
+				print 'EPOCH: %d BATCH RL LOSS: %f UPDATE STEP: %d' % (epoch, rl_loss, update_step)
+
+	saver_1.save(sess1, 'models/rl')
+	print 'MODEL SAVED'
+			
+	
+def test():
+	word2index, index2word = build_vocab('vocab.txt')
+	print '----------PREPARING TESTING DATA---------------'
+	input_seqs, target_seqs = build_data('OpenSubData/for_generation.txt', word2index)
+
+	matrix = np.load(open('embedding'))
+	tf.reset_default_graph()
+	generator = Seq2SeqAttn(25000 + 2, 100, 2, 128, word2index['EOS'], max_len=31, initial_embed=matrix)
+
+	saver = tf.train.Saver()
+	with tf.Session() as sess:
+		saver.restore(sess, 'models/attn_pretrained_100')
+		print 'MODEL RESTORED'
+		batch_size = 5
+		batches = batch_generator(input_seqs, target_seqs, batch_size)
+		for batch in batches:
+			inputs = batch[0].T
+			# targets = batch[2].T
+			outputs = generator.inference(batch[0], batch[1], sess)
+			outputs = outputs.T
+			# print inputs, targets, outputs
+			# break
+			for idx in range(batch_size):
+				input_seq = inputs[idx,:]
+				output_seq = outputs[idx,:]
+				input_sent = []
+				output_sent = []
+				for num in input_seq:
+					if num == 0:
+						break
+					else:
+						input_sent.append(index2word[num])
+				for num in output_seq:
+					if num == word2index['EOS']:
+						break
+					else:
+						output_sent.append(index2word[num])
+				print 'INPUT: ', ' '.join(input_sent)
+				print 'OUTPUT: ', ' '.join(output_sent)
+			break		
+
 if __name__ == '__main__':
-	# rl_train()
-	train()
+	rl_train()
+	# train()
+
 
 
 
