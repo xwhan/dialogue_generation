@@ -191,10 +191,10 @@ def train():
 	saver = tf.train.Saver()
 	with tf.Session() as sess:
 		sess.run(tf.global_variables_initializer())
-		num_epoch = 100
+		num_epoch = 200
 		eval_step = 100
 		for epoch in range(num_epoch):
-			batches = batch_generator(input_seqs, target_seqs, 256)
+			batches = batch_generator(input_seqs, target_seqs, 128)
 			for batch in batches:
 				step, batch_loss = generator.update(batch[0], batch[1], batch[2])
 				if step % eval_step == 0:
@@ -224,9 +224,10 @@ def rl_train():
 	print '----------PREPARING TRAINING DATA---------------'
 	input_seqs, target_seqs = build_data('OpenSubData/first_100000.txt', word2index)
 
-	num_epoch = 100
-	eval_step = 100
+	num_epoch = 1
+	eval_step = 50
 	update_step = 0
+	succ_stats = []
 	for epoch in range(num_epoch):
 		batches = batch_generator(input_seqs, target_seqs, 128)
 		for batch in batches:
@@ -241,15 +242,24 @@ def rl_train():
 				oracle_inputs_[:oracle_inputs.shape[0],:oracle_inputs.shape[1]] = oracle_inputs
 				oracle_inputs = oracle_inputs_
 			oracle_predictions = oracle.inference(oracle_inputs, sess2)
+			
+			rewards = []
+			for i in oracle_predictions:
+				if i == 1:
+					rewards.append(1)
+				else:
+					rewards.append(-1)
+			succ_stats.append(np.mean(rewards))
 			# reinforce
-			rl_loss = generator.policy_learning(batch[0], batch[1], oracle_predictions, sess1)
+			rl_loss = generator.policy_learning(batch[0], batch[1], rewards, sess1)
 			update_step += 1
 			if update_step % eval_step == 0:
 				print 'EPOCH: %d BATCH RL LOSS: %f UPDATE STEP: %d' % (epoch, rl_loss, update_step)
-
-	saver_1.save(sess1, 'models/rl')
-	print 'MODEL SAVED'
-			
+				print 'LAST 100 GENERATION', np.mean(succ_stats[-100:])
+				saver_1.save(sess1, 'models/rl')
+				print 'MODEL SAVED'
+				return
+	
 	
 def test():
 	word2index, index2word = build_vocab('vocab.txt')
@@ -262,7 +272,7 @@ def test():
 
 	saver = tf.train.Saver()
 	with tf.Session() as sess:
-		saver.restore(sess, 'models/attn_pretrained_100')
+		saver.restore(sess, 'models/attn_pretrained_200')
 		print 'MODEL RESTORED'
 		batch_size = 5
 		batches = batch_generator(input_seqs, target_seqs, batch_size)
@@ -293,8 +303,9 @@ def test():
 			break		
 
 if __name__ == '__main__':
-	rl_train()
+	# rl_train()
 	# train()
+	test()
 
 
 

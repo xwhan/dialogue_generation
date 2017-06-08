@@ -173,7 +173,7 @@ def test():
 
 	saver = tf.train.Saver()
 	with tf.Session() as sess:
-		saver.restore(sess, 'models/seq2seq_pretrained_100')
+		saver.restore(sess, 'models/seq2seq_pretrained_500')
 		print 'MODEL RESTORED'
 		batch_size = 5
 		batches = batch_generator(input_seqs, target_seqs, batch_size)
@@ -203,6 +203,6 @@ def test():
 			break
 
 if __name__ == '__main__':
-	train()
-	# test()
+	# train()
+	test()
 
